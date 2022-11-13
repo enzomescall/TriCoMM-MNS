@@ -33,7 +33,7 @@ K = function(B_1, T, t, current_green, area) {
   tree_area = T*pi*r^2/2.59e+6 # converting square meters to square miles
   percent_green = tree_area/area
   
-  alpha = pmax(0.54-current_green, 0) # TO-DO elaborate on alpha
+  alpha = pmax(0.9-current_green, 0) # TO-DO elaborate on alpha
   E = pmin(percent_green, alpha)
   return(B_1 * E)
 }
@@ -46,14 +46,29 @@ mega_function = function(P, C_max, percent_green, t, area, B_1, I, Pop, w) {
   return(U)
 }
 
-plot(limited_greedy(ga_input, nrow(data), 120000, 500, rep(0, 193), 20000), data$PercentPopIncomeBelow2xPovertyLevel)  
+ga_input(limited_greedy(ga_input, nrow(data), 120000, 500, rep(0, 193), 20000))  
+
+
+distance_fun <- function(vect1, vect2) sqrt(sum((vect1 - vect2)^2))
+
+# distance analysis
+# weight 1.4 = 2121.32
+
+
+
+# utility analysis
+# baseline 0.546339
+# cmax 0.6 = 0.5473845
+# cmax 0.8 = 0.5473845
+# cmax 1.2 = 0.546339
+# cmax 1.4 =  0.5452934
 
 ga_input = function(x) {
   C_max = 1000 # cost of breaking in to concrete area
   B_1 = 1.48795 # weight given to % greenery to convert it into degrees Celsius (beta derived from regression)
   t = 30 # size of tree after planted
   area = 10000 # area of all section
-  weight = 1 # how much we way poverty by
+  weight = 0.6 # how much we way poverty by
   mega_function(x,
                 C_max = C_max,
                 percent_green = data$greenPct,
@@ -65,7 +80,7 @@ ga_input = function(x) {
                 w = weight)  
 }
 
-random_ascent = function(fn, iterations = 10000, n = 193, budget = 120000, poverty = data$PercentPopIncomeBelow2xPovertyLevel, initial_vector, lambda) {
+random_ascent = function(fn, iterations = 10000, n = 193, budget = 120000, poverty = data$PercentPopIncomeBelow2xPovertyLevel, initial_vector = rep(0, 193), lambda = 1) {
   #a = rep(budget/(n*mean(poverty)), n) * poverty
   a = initial_vector
   value = fn(a)
