@@ -1,9 +1,10 @@
 library(tidyverse)
-library(numDeriv)
 
 data = read.csv("dataset_final.csv")
-data$Percent_GreenSpace = data$Percent_GreenSpace/100
-data$PercentPopIncomeBelow2xPovertyLevel = data$PercentPopIncomeBelow2xPovertyLevel/100
+
+data$PercentPopIncomeBelow2xPovertyLevel = data$popTwicePovPct/100
+data$availableGreen = (data$greenPct - data$forestsPct)/100
+data$greenPct = data$greenPct/100
 
 G = function(C_max, percent_green) {
   pmax(C_max - percent_green * C_max/0.6, 0)
@@ -11,64 +12,66 @@ G = function(C_max, percent_green) {
 
 T = function(P, G) {
   x = pmax(P - G, 0)
-  n = floor(pmax(0.2*x-40, 0)) # cost curve
+  n = floor(pmax((1/80)*x-(100/80), 0)) # cost curve
   return(n) 
 }
 
-E = function(T, t, area, percent_green) { # A represents the current % of area covered by greenery 
+K = function(B_1, T, t, current_green, area) {
   # assuming all trees are maple
-  MSE_1 = 0.03091
-  b_1 = 1.995
-  A_1 = -0.205
-  MSE_2 = 0.21332
-  b_2 = 3.502
-  A_2 = -0.365
-    
+  MSE_1 = 0.03490
+  b_1 = 1.989
+  A_1 = -0.471
+  MSE_2 = 0.10769
+  b_2 = 5.015
+  A_2 = -2.717
+  
   
   h_2 = exp(MSE_2/2 + A_2) * (log(t + 1))^b_2  
-  r = 0.5*exp(MSE_1/2 + A_1) * (log(h_2 + 1))^b_1
+  r = 0.5*exp(MSE_1/2 + A_1) * (log(h_2 + 1))^b_1 # Erik's tree girth equation
+  #print(paste(sum(T), "trees planted"))
   
-  tree_area = T*pi*r^2
-  percent_green_increase = tree_area/area
+  tree_area = T*pi*r^2/2.59e+6 # converting square meters to square miles
+  percent_green = tree_area/area
   
-  percent_green + percent_green_inrease
+  alpha = pmax(0.54-current_green, 0) # TO-DO elaborate on alpha
+  E = pmin(percent_green, alpha)
+  return(B_1 * E)
 }
 
-K = function(B_0, B_1, E, K_current) {
-  (B_0 + B_1 * E) - K_current
-}
-
-U = function(K, I) {
-  K %*% I
-}
-
-mega_function = function(P, C_max, percent_green, tree_size, area, B_0, B_1, K_current, I) {
+mega_function = function(P, C_max, percent_green, t, area, B_1, I, Pop, w) {
   G_value = G(C_max, percent_green)
   T_value = T(P, G_value)
-  E_value = E(T_value, tree_size, area, percent_green)
-  K_value = K(B_0, B_1, E_value, K_current)
-  U_value = U(K_value, I)
-  
-  return(U_value)
+  K_value = K(B_1, T_value, t, percent_green, area)
+  U = K_value %*% (w + I)
+  return(U)
 }
+
+plot(limited_greedy(ga_input, nrow(data), 120000, 500, rep(0, 193), 20000), data$PercentPopIncomeBelow2xPovertyLevel)  
 
 ga_input = function(x) {
-  C_max = 100 # cost of breaking in to concrete area
-  B_0 = -0.02619984 # intercept given to % greenery to convert it into degrees Celsius (beta derived from regression)
+  C_max = 1000 # cost of breaking in to concrete area
   B_1 = 1.48795 # weight given to % greenery to convert it into degrees Celsius (beta derived from regression)
-  tree_size = 30 # size of tree after planted
-  area = 10000 # area of all sections
-  mega_function(x, C_max, data$Percent_GreenSpace, tree_size, area, B_0, B_1, data$AvgReduxinNighttimeAnnualTemp_Celsius, data$PercentPopIncomeBelow2xPovertyLevel)  
+  t = 30 # size of tree after planted
+  area = 10000 # area of all section
+  weight = 1 # how much we way poverty by
+  mega_function(x,
+                C_max = C_max,
+                percent_green = data$greenPct,
+                t = t,
+                area = data$area.sqm.,
+                B_1 = B_1,
+                I = data$PercentPopIncomeBelow2xPovertyLevel,
+                Pop = data$pop_2010,
+                w = weight)  
 }
 
-random_ascent = function(fn, iterations = 10000, n = 193, budget = 100000, double_rate = 5, poverty = data$PercentPopIncomeBelow2xPovertyLevel) {
+random_ascent = function(fn, iterations = 10000, n = 193, budget = 120000, poverty = data$PercentPopIncomeBelow2xPovertyLevel, initial_vector, lambda) {
   #a = rep(budget/(n*mean(poverty)), n) * poverty
-  a = poor_budget
+  a = initial_vector
   value = fn(a)
   converged = FALSE
   iter = 0
-  
-  print('starting iterations')
+ 
   while(converged == FALSE) {
     for (i in 1:length(a)) {
       if (a[i] == 0) {
@@ -89,7 +92,7 @@ random_ascent = function(fn, iterations = 10000, n = 193, budget = 100000, doubl
         next
       }
       
-      da = min(runif(1, 10, 50), a_new[i])
+      da =min(lambda *runif(1, 10, 50), a_new[i])
       
       a_new[i] = max(a_new[i] - da, 0)
       a_new[lucky_district] = a_new[lucky_district] + da
@@ -100,7 +103,7 @@ random_ascent = function(fn, iterations = 10000, n = 193, budget = 100000, doubl
         value = value_new
         a = a_new 
         
-        da = min(runif(1, 40, 100), a_new[i])
+        da =min(lambda * runif(1, 40, 100), a_new[i])
         
         a_new[i] = max(a_new[i] - da, 0)
         a_new[lucky_district] = a_new[lucky_district] + da
@@ -118,50 +121,112 @@ random_ascent = function(fn, iterations = 10000, n = 193, budget = 100000, doubl
     
     if(iter > iterations) {
       converged = TRUE
-      print("Maximum iterations reached")
-      print("Current utility is")
-      print(value)
       return(a)
     }
   }
 }
 
-gradient_ascent = function(fn, rate, iterations, conv_threshold, n) {
-  a = rep(250, n)
-  value = fn(a)
-  converged = FALSE
-  i = 0
+greedy_algo = function(fn, n, budget, step, a) {
+  best_neighborhood = 0
+  best_value = 0
+  for (i in 1:n) {
+    a_new = a
+    a_new[i] = a[i] + step
+    new_value = fn(a_new)
+    if(new_value > best_value) {
+      best_value = new_value
+      best_neighborhood = i
+    } 
+  }
   
-  while(converged == FALSE) {
-    da = grad(fn, a)
-    a_new = a + rate * da
-    value_new = fn(a_new)
-    if (abs(max(value) - max(value_new)) < conv_threshold) {
-      converged = TRUE
-      print("Optimal utility found")
-      print(value_new)
-      print("Iterations:")
-      print(i)
-      print("Returning vector of prices")
-      return(a_new)
-    }
-    
-    value = value_new
-    a = a_new
-    i = i  + 1
-    
-    if(i > iterations) {
-      converged = TRUE
-      print("Maximum iterations reached")
-      print("Current utility is")
-      print(value)
-      return(a)
-    }
+  a_best = a
+  a_best[best_neighborhood] = a_best[best_neighborhood] + step
+  
+  if(budget - step < step) {
+    return(a_best)
   }
+  
+  greedy_algo(fn, n, budget-step, step, a_best)
 }
 
-v = random_ascent(ga_input, 1000, nrow(data), 100000, 5)
-v
+greedy_while = function(fn, n, budget, step, a) {
+  while (budget > 0) {
+    best_neighborhood = 0
+    best_value = 0
+    for (i in 1:n) {
+      a_new = a
+      a_new[i] = a[i] + step
+      new_value = fn(a_new)
+      if(new_value > best_value) {
+        best_value = new_value
+        best_neighborhood = i
+      } 
+    } 
+    a[best_neighborhood] = a[best_neighborhood] + step
+    budget = budget - step
+  }
+  return(a)
+}
 
-min(v)
-which.min(v)
+choose_best = function(initial_vector, n_vectors, fn, iterations, budget, n_rows, poverty, lambda) {
+  best_vector = initial_vector
+  best_value = fn(best_vector)
+  for (i in 1:n_vectors) {
+    temp_vector = random_ascent(fn, iterations, n_rows, budget, poverty, initial_vector, lambda)
+    temp_value = fn(temp_vector)
+    
+    if (temp_value > best_value) {
+      best_vector = temp_vector
+      best_value = temp_value
+      print(paste("Current best value:", best_value))
+      print(paste("Iteration:", i))
+    }
+  }
+  print(paste("Final value:", best_value))
+  return(best_vector)
+}
+
+limited_greedy = function(fn, n, budget, step, a, max_investment_in_district) {
+  while (budget > 0) {
+    best_neighborhood = 0
+    best_value = 0
+    for (i in 1:n) {
+      if (a[i] > max_investment_in_district) {
+        next
+      }
+      a_new = a
+      a_new[i] = a[i] + step
+      new_value = fn(a_new)
+      if(new_value > best_value) {
+        best_value = new_value
+        best_neighborhood = i
+      } 
+    } 
+    a[best_neighborhood] = a[best_neighborhood] + step
+    budget = budget - step
+  }
+  return(a)
+}
+
+v = limited_greedy(ga_input, nrow(data), 120000, 500, rep(0, 193), 20000)
+
+plot(v, data$PercentPopIncomeBelow2xPovertyLevel)
+
+budget_levels = (1:20) * 50000 
+results = c()
+for (budget in budget_levels) {
+  v = greedy_while(ga_input, nrow(data), budget, 500, rep(0, 193))
+  results = c(results, ga_input(v))
+}
+
+plot(budget_levels, results)
+
+small_budget_levels = (5:15) * 10000 
+small_results = c()
+for (budget in small_budget_levels) {
+  v = greedy_while(ga_input, nrow(data), budget, 500, rep(0, 193))
+  small_results = c(small_results, ga_input(v))
+}
+
+plot(c(small_budget_levels, budget_levels), c(small_results, results))
+abline(v = 120000)

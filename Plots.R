@@ -10,4 +10,7 @@ green_UHI = ggplot(data = data, aes(x = greenPct - forestsPct, y = avgTempReducN
        subtitle = "Large green spaces without trees are a prime target for new tree planting") +
   theme(legend.position="none") + scale_colour_gradient(low = '#0E402D', high = '#6CAE75')
 
+green_UHI
+
 ggsave('unforestedGreenSpacesXUranHeatIndex.png', green_UHI, device = 'png')
+
