@@ -1,7 +1,7 @@
 library(tidyverse)
 library(numDeriv)
 
-data = read.csv("TriCoMM_DNC_data.csv")
+data = read.csv("dataset_final.csv")
 data$Percent_GreenSpace = data$Percent_GreenSpace/100
 data$PercentPopIncomeBelow2xPovertyLevel = data$PercentPopIncomeBelow2xPovertyLevel/100
 
@@ -15,8 +15,23 @@ T = function(P, G) {
   return(n) 
 }
 
-E = function(T, tree_size, area, percent_green) { # A represents the current % of area covered by greenery 
-  pmin((T*tree_size)/area + percent_green, 0.9) # cap at 90% green (can be made modular)
+E = function(T, t, area, percent_green) { # A represents the current % of area covered by greenery 
+  # assuming all trees are maple
+  MSE_1 = 0.03091
+  b_1 = 1.995
+  A_1 = -0.205
+  MSE_2 = 0.21332
+  b_2 = 3.502
+  A_2 = -0.365
+    
+  
+  h_2 = exp(MSE_2/2 + A_2) * (log(t + 1))^b_2  
+  r = 0.5*exp(MSE_1/2 + A_1) * (log(h_2 + 1))^b_1
+  
+  tree_area = T*pi*r^2
+  percent_green_increase = tree_area/area
+  
+  percent_green + percent_green_inrease
 }
 
 K = function(B_0, B_1, E, K_current) {
@@ -47,24 +62,37 @@ ga_input = function(x) {
 }
 
 random_ascent = function(fn, iterations = 10000, n = 193, budget = 100000, double_rate = 5, poverty = data$PercentPopIncomeBelow2xPovertyLevel) {
-  a = rep(budget/(n*mean(poverty)), n) * poverty
+  #a = rep(budget/(n*mean(poverty)), n) * poverty
+  a = poor_budget
   value = fn(a)
   converged = FALSE
   iter = 0
   
   print('starting iterations')
   while(converged == FALSE) {
-    
-    a_new = a
-    
     for (i in 1:length(a)) {
-      lucky_district = round(runif(1, 0, n))
-      da = runif(1, 40, 100)
-      
-      if (a_new[i] > da) {
-        a_new[i] = a_new[i] - da
-        a_new[lucky_district] = a_new[lucky_district] + da
+      if (a[i] == 0) {
+        next
       }
+      
+      a_new = a
+      lucky_district = ceiling(runif(1, 0, n))
+      
+      da = a_new[i]
+      a_new[i] = 0
+      a_new[lucky_district] = a_new[lucky_district] + da
+      
+      value_new = fn(a_new)
+      if (value_new > value) {
+        value = value_new
+        a = a_new 
+        next
+      }
+      
+      da = min(runif(1, 10, 50), a_new[i])
+      
+      a_new[i] = max(a_new[i] - da, 0)
+      a_new[lucky_district] = a_new[lucky_district] + da
       
       value_new = fn(a_new)
       
@@ -72,12 +100,10 @@ random_ascent = function(fn, iterations = 10000, n = 193, budget = 100000, doubl
         value = value_new
         a = a_new 
         
-        da = runif(1, 80, 120)
+        da = min(runif(1, 40, 100), a_new[i])
         
-        if (a_new[i] > da) {
-          a_new[i] = a_new[i] - da
-          a_new[lucky_district] = a_new[lucky_district] + da
-        }
+        a_new[i] = max(a_new[i] - da, 0)
+        a_new[lucky_district] = a_new[lucky_district] + da
         
         value_new = fn(a_new)
         
@@ -137,4 +163,5 @@ gradient_ascent = function(fn, rate, iterations, conv_threshold, n) {
 v = random_ascent(ga_input, 1000, nrow(data), 100000, 5)
 v
 
+min(v)
 which.min(v)
